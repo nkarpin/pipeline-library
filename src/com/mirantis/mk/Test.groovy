@@ -41,6 +41,37 @@ def copyTestsOutput(master, image) {
 }
 
 /**
+ * Prepare environment for tempest tests
+ *
+ * @param cirrosImageLink   Qcow2 image link with embedded linux (cirros)
+ * @param target            Host to run tests
+ */
+def prepareTempestEnv(master, target, cirrosImageLink) {
+    // Get test_vm_image for tempest
+    cirros_image_name = cirrosImageLink.substring(cirrosImageLink.lastIndexOf('/') + 1);
+    salt.cmdRun(master, "${target}", "wget ${cirrosImageLink} -O /tmp/${cirros_image_name}")
+    // Upload image to glance
+    // TODO: use native salt module when it supports glance v2 api
+    salt.cmdRun(master, "${target}", ". /root/keystonercv3; glance image-create " +
+                                     "--name cirros --visibility public " +
+                                     "--disk-format qcow2 --container-format bare " +
+                                     "--file /tmp/${cirros_image_name} --progress")
+    // Setup floating network and subnet
+    salt.runSaltProcessStep(master, "${target}", 'neutronng.create_network', ["name=tempest_floting_network",
+                                                                                  "profile=admin_identity",
+                                                                                  "provider_network_type=flat",
+                                                                                  "provider_physical_network=physnet1",
+                                                                                  "router_external=True",
+                                                                                  "shared=True"],
+                                                                                  null, true)
+    salt.cmdRun(master, "${target}", ". /root/keystonercv3; neutron subnet-create --gateway 10.16.0.1 tempest_floating_network 10.16.0.0/24")
+
+    salt.cmdRun(master, "${target}", "ifconfig br-floating 10.16.0.1/24")
+
+    salt.cmdRun(master, "${target}", ". /root/keystonercv3; nova flavor-create m1.extra_tiny auto 256 0 1")
+}
+
+/**
  * Execute tempest tests
  *
  * @param dockerImageLink   Docker image link with rally and tempest
@@ -75,6 +106,24 @@ def copyTempestResults(master, target) {
     salt.runSaltProcessStep(master, "${target}", 'cmd.run', ["scp /root/docker-tempest.log cfg01:/home/ubuntu/ && " +
                                                              "find /root -name result.xml -exec scp {} cfg01:/home/ubuntu \\;"])
 }
+
+/**
+ * Get test results and archive them
+ *
+ * @param testResultsPath   Path to test results file
+ * @param artifactsDir      Directory to archive artifacts from
+ * @param outputFile        File to write results to
+ * @param target            Host to gather test results from
+ */
+def getTestResults(master, target, testResults, artifactsDir, outputFile) {
+    // collect output
+    file_content = salt.getFileContent(master, "${target}", "${testResultsPath}")
+    sh "mkdir -p ${artifacts_dir}"
+    writeFile file: "${artifacts_dir}/${outputFile}", text: file_content
+    // collect artifacts
+    archiveArtifacts allowEmptyArchive: true, artifacts: '${artifacts_dir}/${outputFile}', excludes: null
+}
+
 
 
 /** Store tests results on host
