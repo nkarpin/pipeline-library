@@ -424,7 +424,7 @@ def installOpenstackNetwork(master, physical = "false") {
         salt.enforceState(master, 'I@neutron:client', 'neutron.client')
     }
 
-    salt.enforceHighstate(master, 'I@neutron:gateway')
+    salt.enforceHighstateWithExclude(master, 'I@neutron:gateway', 'runtest.tempest')
 
     // install octavia manager services
     if (salt.testTarget(master, 'I@octavia:manager')) {
@@ -445,7 +445,7 @@ def installOpenstackCompute(master) {
         def gluster_compound = 'I@glusterfs:server'
         // Enforce highstate asynchronous only on compute nodes which are not glusterfs servers
         retry(2) {
-            salt.enforceHighstateWithExclude(master, compute_compound + ' and not ' + gluster_compound, 'opencontrail.client')
+            salt.enforceHighstateWithExclude(master, compute_compound + ' and not ' + gluster_compound, 'opencontrail.client,runtest.tempest')
         }
         // Iterate through glusterfs servers and check if they have compute role
         // TODO: switch to batch once salt 2017.7+ would be used
@@ -454,7 +454,7 @@ def installOpenstackCompute(master) {
                 if ( target == cmp_target ) {
                     // Enforce highstate one by one on glusterfs servers which are compute nodes
                     retry(2) {
-                        salt.enforceHighstateWithExclude(master, target, 'opencontrail.client')
+                        salt.enforceHighstateWithExclude(master, target, 'opencontrail.client,runtest.tempest')
                     }
                 }
             }
